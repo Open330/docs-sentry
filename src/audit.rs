@@ -650,6 +650,7 @@ features: false
 
         let audit = audit_repo(&example_repo(), Some(readme), 70, false);
         assert!(audit.missing_required.contains(&"Features"));
+        assert!(!audit.missing_required.contains(&"Quick Start"));
     }
 
     #[test]
@@ -667,6 +668,7 @@ features = false
 
         let audit = audit_repo(&example_repo(), Some(readme), 70, false);
         assert!(audit.missing_required.contains(&"Features"));
+        assert!(!audit.missing_required.contains(&"Quick Start"));
     }
 
     #[test]
