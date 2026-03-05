@@ -38,7 +38,7 @@ report formats, and workflow integrations for documentation governance.
 
 **Organization Scan** -- Pull repositories with `gh repo list` and inspect each README through the GitHub API.
 
-**Template-Aware Scoring** -- Score docs coverage with weighted checks for sections like Features, Quick Start, Architecture, and License.
+**Template-Aware Scoring** -- Score docs coverage with weighted checks for sections like Features, Quick Start, Architecture, and License using heading-intent matching (`#`, `##`, `###`, and heading variants).
 
 **Actionable Gaps** -- Return missing required and recommended sections per repo, plus threshold-based notes.
 
