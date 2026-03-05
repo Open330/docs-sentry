@@ -225,7 +225,7 @@ fn escape_json(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{render_markdown, render_table};
+    use super::{render_json, render_markdown, render_table};
     use crate::audit::{AuditStatus, RepoAudit};
     use crate::github::RepoMetadata;
 
@@ -245,6 +245,16 @@ mod tests {
         assert!(output.contains("## Documentation Audit Report"));
         assert!(output.contains("| Repo | Score | Status |"));
         assert!(output.contains("`docs-sentry`"));
+    }
+
+    #[test]
+    fn json_contains_expected_fields() {
+        let reports = sample_reports();
+        let output = render_json(&reports, "Open330", 70);
+        assert!(output.contains("\"organization\": \"Open330\""));
+        assert!(output.contains("\"repos\": ["));
+        assert!(output.contains("\"name\": \"docs-sentry\""));
+        assert!(output.contains("\"status\": \"strong\""));
     }
 
     fn sample_reports() -> Vec<RepoAudit> {
