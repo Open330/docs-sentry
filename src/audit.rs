@@ -278,11 +278,36 @@ fn matches_check(check: &WeightedCheck, readme_lower: &str, headings: &[String])
 fn extract_normalized_headings(readme_lower: &str) -> Vec<String> {
     let mut headings = Vec::new();
     let mut fence: Option<FenceSpec> = None;
+    let mut front_matter_possible = true;
+    let mut in_front_matter = false;
     let lines: Vec<&str> = readme_lower.lines().collect();
     let mut index = 0usize;
 
     while index < lines.len() {
         let trimmed = lines[index].trim_start();
+        let trimmed_both = lines[index].trim();
+
+        if front_matter_possible && trimmed_both.is_empty() {
+            index += 1;
+            continue;
+        }
+
+        if front_matter_possible {
+            front_matter_possible = false;
+            if trimmed_both == "---" || trimmed_both == "+++" {
+                in_front_matter = true;
+                index += 1;
+                continue;
+            }
+        }
+
+        if in_front_matter {
+            if trimmed_both == "---" || trimmed_both == "+++" || trimmed_both == "..." {
+                in_front_matter = false;
+            }
+            index += 1;
+            continue;
+        }
 
         if let Some(current_fence) = fence {
             if is_closing_fence(trimmed, current_fence) {
@@ -567,5 +592,38 @@ License
         let audit = audit_repo(&example_repo(), Some(readme), 70, false);
         assert!(audit.missing_required.contains(&"Features"));
         assert!(audit.missing_required.contains(&"Quick Start"));
+    }
+
+    #[test]
+    fn does_not_close_fence_with_shorter_length() {
+        let readme = "
+````markdown
+## Features
+```
+## Quick Start
+````
+## Architecture
+## License
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.contains(&"Features"));
+        assert!(audit.missing_required.contains(&"Quick Start"));
+    }
+
+    #[test]
+    fn ignores_yaml_front_matter_for_heading_detection() {
+        let readme = "
+---
+title: Example project
+features: false
+---
+## Quick Start
+## Architecture
+## License
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.contains(&"Features"));
     }
 }
