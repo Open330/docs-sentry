@@ -256,7 +256,7 @@ fn matches_check(check: &WeightedCheck, readme_lower: &str, headings: &[String])
         let normalized_alias = normalize_phrase(alias);
         headings
             .iter()
-            .any(|heading| heading == &normalized_alias || heading.contains(&normalized_alias))
+            .any(|heading| contains_token_sequence(heading, &normalized_alias))
     });
 
     if heading_match {
@@ -270,27 +270,45 @@ fn matches_check(check: &WeightedCheck, readme_lower: &str, headings: &[String])
 }
 
 fn extract_normalized_headings(readme_lower: &str) -> Vec<String> {
-    readme_lower
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim_start();
-            if !trimmed.starts_with('#') {
-                return None;
-            }
+    let mut headings = Vec::new();
+    let mut in_fenced_block = false;
 
-            let heading = trimmed.trim_start_matches('#').trim();
-            if heading.is_empty() {
-                return None;
-            }
+    for line in readme_lower.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fenced_block = !in_fenced_block;
+            continue;
+        }
 
-            let normalized = normalize_phrase(heading);
-            if normalized.is_empty() {
-                None
-            } else {
-                Some(normalized)
-            }
-        })
-        .collect()
+        if in_fenced_block || !trimmed.starts_with('#') {
+            continue;
+        }
+
+        let heading = trimmed.trim_start_matches('#').trim();
+        if heading.is_empty() {
+            continue;
+        }
+
+        let normalized = normalize_phrase(heading);
+        if !normalized.is_empty() {
+            headings.push(normalized);
+        }
+    }
+
+    headings
+}
+
+fn contains_token_sequence(heading: &str, alias: &str) -> bool {
+    let heading_tokens: Vec<&str> = heading.split_whitespace().collect();
+    let alias_tokens: Vec<&str> = alias.split_whitespace().collect();
+
+    if alias_tokens.is_empty() || heading_tokens.len() < alias_tokens.len() {
+        return false;
+    }
+
+    heading_tokens
+        .windows(alias_tokens.len())
+        .any(|window| window == alias_tokens)
 }
 
 fn normalize_phrase(value: &str) -> String {
@@ -409,5 +427,34 @@ quickstart-for-agents.vercel.app/api/header.svg
 
         assert_eq!(regular.score, strict.score);
         assert_eq!(regular.missing_required, strict.missing_required);
+    }
+
+    #[test]
+    fn does_not_match_alias_inside_other_words() {
+        let readme = "
+## Features
+## Quick Start
+## Architecture
+## License
+## Contests
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_recommended.contains(&"Run Tests"));
+    }
+
+    #[test]
+    fn ignores_headings_inside_fenced_code_blocks() {
+        let readme = "
+```markdown
+## Features
+```
+## Quick Start
+## Architecture
+## License
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.contains(&"Features"));
     }
 }
