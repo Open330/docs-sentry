@@ -658,6 +658,7 @@ features: false
 +++
 title = \"Example project\"
 features = false
+# Features
 +++
 ## Quick Start
 ## Architecture
