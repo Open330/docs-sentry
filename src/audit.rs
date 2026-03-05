@@ -279,13 +279,23 @@ fn extract_normalized_headings(readme_lower: &str) -> Vec<String> {
     let mut headings = Vec::new();
     let mut fence: Option<FenceSpec> = None;
     let mut front_matter_possible = true;
-    let mut in_front_matter = false;
+    let mut front_matter_end_index: Option<usize> = None;
     let lines: Vec<&str> = readme_lower.lines().collect();
     let mut index = 0usize;
 
     while index < lines.len() {
         let trimmed = lines[index].trim_start();
         let trimmed_both = lines[index].trim();
+
+        if let Some(end_index) = front_matter_end_index
+            && index <= end_index
+        {
+            if index == end_index {
+                front_matter_end_index = None;
+            }
+            index += 1;
+            continue;
+        }
 
         if front_matter_possible && trimmed_both.is_empty() {
             index += 1;
@@ -294,19 +304,13 @@ fn extract_normalized_headings(readme_lower: &str) -> Vec<String> {
 
         if front_matter_possible {
             front_matter_possible = false;
-            if trimmed_both == "---" || trimmed_both == "+++" {
-                in_front_matter = true;
+            if (trimmed_both == "---" || trimmed_both == "+++")
+                && let Some(end_index) = find_front_matter_end(&lines, index, trimmed_both)
+            {
+                front_matter_end_index = Some(end_index);
                 index += 1;
                 continue;
             }
-        }
-
-        if in_front_matter {
-            if trimmed_both == "---" || trimmed_both == "+++" || trimmed_both == "..." {
-                in_front_matter = false;
-            }
-            index += 1;
-            continue;
         }
 
         if let Some(current_fence) = fence {
@@ -353,6 +357,25 @@ fn extract_normalized_headings(readme_lower: &str) -> Vec<String> {
     }
 
     headings
+}
+
+fn find_front_matter_end(lines: &[&str], opening_index: usize, delimiter: &str) -> Option<usize> {
+    let mut has_metadata_like_line = false;
+
+    for (index, line) in lines.iter().enumerate().skip(opening_index + 1) {
+        let trimmed = line.trim();
+
+        let is_closing_delimiter = trimmed == delimiter || (delimiter == "---" && trimmed == "...");
+        if is_closing_delimiter {
+            return has_metadata_like_line.then_some(index);
+        }
+
+        if !trimmed.is_empty() && trimmed.contains(':') {
+            has_metadata_like_line = true;
+        }
+    }
+
+    None
 }
 
 fn parse_opening_fence(trimmed_line: &str) -> Option<FenceSpec> {
@@ -625,5 +648,19 @@ features: false
 
         let audit = audit_repo(&example_repo(), Some(readme), 70, false);
         assert!(audit.missing_required.contains(&"Features"));
+    }
+
+    #[test]
+    fn does_not_treat_unclosed_horizontal_rule_as_front_matter() {
+        let readme = "
+---
+## Features
+## Quick Start
+## Architecture
+## License
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.is_empty());
     }
 }
