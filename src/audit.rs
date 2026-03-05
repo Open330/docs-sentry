@@ -122,6 +122,12 @@ const CHECKS: [WeightedCheck; 10] = [
     },
 ];
 
+#[derive(Clone, Copy)]
+struct FenceSpec {
+    marker: char,
+    len: usize,
+}
+
 pub fn audit_repo(
     repo: &RepoMetadata,
     readme: Option<&str>,
@@ -271,31 +277,102 @@ fn matches_check(check: &WeightedCheck, readme_lower: &str, headings: &[String])
 
 fn extract_normalized_headings(readme_lower: &str) -> Vec<String> {
     let mut headings = Vec::new();
-    let mut in_fenced_block = false;
+    let mut fence: Option<FenceSpec> = None;
+    let lines: Vec<&str> = readme_lower.lines().collect();
+    let mut index = 0usize;
 
-    for line in readme_lower.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fenced_block = !in_fenced_block;
+    while index < lines.len() {
+        let trimmed = lines[index].trim_start();
+
+        if let Some(current_fence) = fence {
+            if is_closing_fence(trimmed, current_fence) {
+                fence = None;
+            }
+            index += 1;
             continue;
         }
 
-        if in_fenced_block || !trimmed.starts_with('#') {
+        if let Some(opening_fence) = parse_opening_fence(trimmed) {
+            fence = Some(opening_fence);
+            index += 1;
             continue;
         }
 
-        let heading = trimmed.trim_start_matches('#').trim();
-        if heading.is_empty() {
+        if trimmed.starts_with('#') {
+            let heading = trimmed.trim_start_matches('#').trim();
+            if !heading.is_empty() {
+                let normalized = normalize_phrase(heading);
+                if !normalized.is_empty() {
+                    headings.push(normalized);
+                }
+            }
+            index += 1;
             continue;
         }
 
-        let normalized = normalize_phrase(heading);
-        if !normalized.is_empty() {
-            headings.push(normalized);
+        if index + 1 < lines.len() {
+            let heading_candidate = lines[index].trim();
+            let underline_candidate = lines[index + 1].trim();
+
+            if !heading_candidate.is_empty() && is_setext_underline(underline_candidate) {
+                let normalized = normalize_phrase(heading_candidate);
+                if !normalized.is_empty() {
+                    headings.push(normalized);
+                }
+                index += 2;
+                continue;
+            }
         }
+
+        index += 1;
     }
 
     headings
+}
+
+fn parse_opening_fence(trimmed_line: &str) -> Option<FenceSpec> {
+    let mut chars = trimmed_line.chars();
+    let marker = chars.next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+
+    let len = trimmed_line
+        .chars()
+        .take_while(|character| *character == marker)
+        .count();
+    if len < 3 {
+        return None;
+    }
+
+    Some(FenceSpec { marker, len })
+}
+
+fn is_closing_fence(trimmed_line: &str, opening_fence: FenceSpec) -> bool {
+    let marker_count = trimmed_line
+        .chars()
+        .take_while(|character| *character == opening_fence.marker)
+        .count();
+    if marker_count < opening_fence.len {
+        return false;
+    }
+
+    let trailing = trimmed_line.chars().skip(marker_count).collect::<String>();
+    trailing.trim().is_empty()
+}
+
+fn is_setext_underline(trimmed_line: &str) -> bool {
+    if trimmed_line.len() < 3 {
+        return false;
+    }
+
+    let mut chars = trimmed_line.chars();
+    let marker = chars.next().unwrap_or_default();
+    if marker != '=' && marker != '-' {
+        return false;
+    }
+
+    chars.all(|character| character == marker)
 }
 
 fn contains_token_sequence(heading: &str, alias: &str) -> bool {
@@ -456,5 +533,39 @@ quickstart-for-agents.vercel.app/api/header.svg
 
         let audit = audit_repo(&example_repo(), Some(readme), 70, false);
         assert!(audit.missing_required.contains(&"Features"));
+    }
+
+    #[test]
+    fn supports_setext_style_headings() {
+        let readme = "
+Features
+--------
+Quick Start
+===========
+Architecture
+------------
+License
+-------
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.is_empty());
+    }
+
+    #[test]
+    fn does_not_close_fence_with_different_marker() {
+        let readme = "
+```markdown
+## Features
+~~~
+## Quick Start
+```
+## Architecture
+## License
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.contains(&"Features"));
+        assert!(audit.missing_required.contains(&"Quick Start"));
     }
 }
