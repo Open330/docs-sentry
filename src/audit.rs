@@ -6,6 +6,7 @@ pub enum AuditStatus {
     NeedsWork,
     Weak,
     MissingReadme,
+    FetchError,
 }
 
 impl AuditStatus {
@@ -15,6 +16,7 @@ impl AuditStatus {
             Self::NeedsWork => "needs-work",
             Self::Weak => "weak",
             Self::MissingReadme => "missing-readme",
+            Self::FetchError => "fetch-error",
         }
     }
 }
@@ -113,7 +115,7 @@ pub fn audit_repo(
     repo: &RepoMetadata,
     readme: Option<&str>,
     min_score: u8,
-    strict: bool,
+    _strict: bool,
 ) -> RepoAudit {
     let Some(contents) = readme else {
         return RepoAudit {
@@ -147,11 +149,6 @@ pub fn audit_repo(
         }
     }
 
-    if strict {
-        let penalty = (missing_required.len() as u16) * 5;
-        score = score.saturating_sub(penalty);
-    }
-
     let score = score.min(100) as u8;
     let status = if score >= 85 {
         AuditStatus::Strong
@@ -165,9 +162,6 @@ pub fn audit_repo(
     if score < min_score {
         notes.push(format!("Below target score ({score} < {min_score})."));
     }
-    if strict && !missing_required.is_empty() {
-        notes.push("Strict mode penalty applied due to missing required sections.".to_string());
-    }
 
     RepoAudit {
         repo: repo.clone(),
@@ -176,6 +170,23 @@ pub fn audit_repo(
         has_readme: true,
         missing_required,
         missing_recommended,
+        notes,
+    }
+}
+
+pub fn audit_fetch_error(repo: &RepoMetadata, error: &str, min_score: u8) -> RepoAudit {
+    let mut notes = vec![format!("README fetch failed: {error}")];
+    if 0 < min_score {
+        notes.push(format!("Below target score (0 < {min_score})."));
+    }
+
+    RepoAudit {
+        repo: repo.clone(),
+        score: 0,
+        status: AuditStatus::FetchError,
+        has_readme: false,
+        missing_required: Vec::new(),
+        missing_recommended: Vec::new(),
         notes,
     }
 }
@@ -233,7 +244,7 @@ fn recommended_section_names() -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AuditStatus, audit_repo, summarize};
+    use super::{AuditStatus, audit_fetch_error, audit_repo, summarize};
     use crate::github::RepoMetadata;
 
     fn example_repo() -> RepoMetadata {
@@ -271,6 +282,14 @@ quickstart-for-agents.vercel.app/api/header.svg
         assert_eq!(audit.score, 0);
         assert_eq!(audit.status, AuditStatus::MissingReadme);
         assert!(!audit.missing_required.is_empty());
+    }
+
+    #[test]
+    fn marks_fetch_error_separately() {
+        let audit = audit_fetch_error(&example_repo(), "HTTP 502", 70);
+        assert_eq!(audit.score, 0);
+        assert_eq!(audit.status, AuditStatus::FetchError);
+        assert!(audit.missing_required.is_empty());
     }
 
     #[test]

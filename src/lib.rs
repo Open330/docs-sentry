@@ -3,7 +3,7 @@ pub mod config;
 pub mod github;
 pub mod output;
 
-use audit::{audit_repo, sort_audits, summarize};
+use audit::{audit_fetch_error, audit_repo, sort_audits, summarize};
 use config::{Config, OutputFormat};
 use github::{fetch_readme, list_repositories};
 use output::{render_json, render_markdown, render_table};
@@ -37,11 +37,7 @@ pub fn run(config: &Config) -> Result<RunResult, String> {
                 config.min_score,
                 config.strict,
             )),
-            Err(error) => {
-                let mut report = audit_repo(&repo, None, config.min_score, config.strict);
-                report.notes.push(format!("README fetch failed: {error}"));
-                audits.push(report);
-            }
+            Err(error) => audits.push(audit_fetch_error(&repo, &error, config.min_score)),
         }
     }
 

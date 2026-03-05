@@ -46,6 +46,8 @@ report formats, and workflow integrations for documentation governance.
 
 **Strict CI Mode** -- Use `--strict` to fail with exit code `2` when one or more repos fall below `--min-score`.
 
+**Fetch Error Visibility** -- Network/auth/API failures are reported as `fetch-error` instead of being mislabeled as missing READMEs.
+
 ## Score Model
 
 | Check | Weight | Type |
@@ -71,6 +73,7 @@ Total: 100 points.
 | `needs-work` | 60-84 |
 | `weak` | 0-59 |
 | `missing-readme` | README missing |
+| `fetch-error` | README could not be fetched |
 
 ## CLI Options
 
