@@ -1,0 +1,9 @@
+[package]
+name = "docs-sentry"
+version = "0.1.0"
+edition = "2024"
+description = "Rust CLI for auditing GitHub repository README quality and template consistency"
+license = "MIT"
+repository = "https://github.com/Open330/docs-sentry"
+
+[dependencies]
