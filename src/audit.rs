@@ -370,7 +370,9 @@ fn find_front_matter_end(lines: &[&str], opening_index: usize, delimiter: &str) 
             return has_metadata_like_line.then_some(index);
         }
 
-        if !trimmed.is_empty() && trimmed.contains(':') {
+        let looks_like_yaml_metadata = trimmed.contains(':');
+        let looks_like_toml_metadata = delimiter == "+++" && trimmed.contains('=');
+        if !trimmed.is_empty() && (looks_like_yaml_metadata || looks_like_toml_metadata) {
             has_metadata_like_line = true;
         }
     }
@@ -641,6 +643,22 @@ License
 title: Example project
 features: false
 ---
+## Quick Start
+## Architecture
+## License
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.contains(&"Features"));
+    }
+
+    #[test]
+    fn ignores_toml_front_matter_for_heading_detection() {
+        let readme = "
++++
+title = \"Example project\"
+features = false
++++
 ## Quick Start
 ## Architecture
 ## License
