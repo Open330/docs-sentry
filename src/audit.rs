@@ -45,7 +45,8 @@ struct WeightedCheck {
     name: &'static str,
     weight: u8,
     required: bool,
-    patterns: &'static [&'static str],
+    heading_aliases: &'static [&'static str],
+    content_patterns: &'static [&'static str],
 }
 
 const CHECKS: [WeightedCheck; 10] = [
@@ -53,61 +54,71 @@ const CHECKS: [WeightedCheck; 10] = [
         name: "Features",
         weight: 18,
         required: true,
-        patterns: &["## features"],
+        heading_aliases: &["features", "feature"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "Quick Start",
         weight: 16,
         required: true,
-        patterns: &["## quick start", "## getting started"],
+        heading_aliases: &["quick start", "getting started"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "Architecture",
         weight: 14,
         required: true,
-        patterns: &["## architecture"],
+        heading_aliases: &["architecture"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "License",
         weight: 14,
         required: true,
-        patterns: &["## license"],
+        heading_aliases: &["license"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "Tech Stack",
         weight: 10,
         required: false,
-        patterns: &["## tech stack"],
+        heading_aliases: &["tech stack"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "Usage",
         weight: 8,
         required: false,
-        patterns: &["## usage", "## cli options", "## commands"],
+        heading_aliases: &["usage", "cli options", "commands"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "Run Tests",
         weight: 8,
         required: false,
-        patterns: &["### run tests", "## testing"],
+        heading_aliases: &["run tests", "testing", "tests"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "Deploy",
         weight: 6,
         required: false,
-        patterns: &["## deploy", "## deployment"],
+        heading_aliases: &["deploy", "deployment"],
+        content_patterns: &[],
     },
     WeightedCheck {
         name: "Centered Hero",
         weight: 3,
         required: false,
-        patterns: &["<p align=\"center\">"],
+        heading_aliases: &[],
+        content_patterns: &["<p align=\"center\">"],
     },
     WeightedCheck {
         name: "Agent Header",
         weight: 3,
         required: false,
-        patterns: &["quickstart-for-agents.vercel.app/api/header.svg"],
+        heading_aliases: &[],
+        content_patterns: &["quickstart-for-agents.vercel.app/api/header.svg"],
     },
 ];
 
@@ -130,15 +141,13 @@ pub fn audit_repo(
     };
 
     let lowered = contents.to_ascii_lowercase();
+    let headings = extract_normalized_headings(&lowered);
     let mut score: u16 = 0;
     let mut missing_required = Vec::new();
     let mut missing_recommended = Vec::new();
 
     for check in CHECKS {
-        let matched = check
-            .patterns
-            .iter()
-            .any(|pattern| lowered.contains(&pattern.to_ascii_lowercase()));
+        let matched = matches_check(&check, &lowered, &headings);
 
         if matched {
             score += u16::from(check.weight);
@@ -242,6 +251,68 @@ fn recommended_section_names() -> Vec<&'static str> {
         .collect()
 }
 
+fn matches_check(check: &WeightedCheck, readme_lower: &str, headings: &[String]) -> bool {
+    let heading_match = check.heading_aliases.iter().any(|alias| {
+        let normalized_alias = normalize_phrase(alias);
+        headings
+            .iter()
+            .any(|heading| heading == &normalized_alias || heading.contains(&normalized_alias))
+    });
+
+    if heading_match {
+        return true;
+    }
+
+    check
+        .content_patterns
+        .iter()
+        .any(|pattern| readme_lower.contains(&pattern.to_ascii_lowercase()))
+}
+
+fn extract_normalized_headings(readme_lower: &str) -> Vec<String> {
+    readme_lower
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with('#') {
+                return None;
+            }
+
+            let heading = trimmed.trim_start_matches('#').trim();
+            if heading.is_empty() {
+                return None;
+            }
+
+            let normalized = normalize_phrase(heading);
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized)
+            }
+        })
+        .collect()
+}
+
+fn normalize_phrase(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut last_space = false;
+
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            normalized.push(character.to_ascii_lowercase());
+            last_space = false;
+        } else if !last_space {
+            normalized.push(' ');
+            last_space = true;
+        }
+    }
+
+    normalized
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AuditStatus, audit_fetch_error, audit_repo, summarize};
@@ -311,5 +382,32 @@ quickstart-for-agents.vercel.app/api/header.svg
         assert_eq!(summary.total, 2);
         assert_eq!(summary.with_readme, 1);
         assert_eq!(summary.below_threshold, 1);
+    }
+
+    #[test]
+    fn accepts_heading_variants_without_exact_hash_pattern() {
+        let readme = "
+# Product
+### Feature Overview
+## Getting Started Guide
+#### Architecture Overview
+## License and Legal
+## Testing Strategy
+### Deployment Notes
+";
+
+        let audit = audit_repo(&example_repo(), Some(readme), 70, false);
+        assert!(audit.missing_required.is_empty());
+        assert!(audit.score >= 62);
+    }
+
+    #[test]
+    fn strict_flag_only_affects_exit_behavior_not_scoring() {
+        let readme = "## Features\n## Quick Start\n## Architecture\n## License\n";
+        let regular = audit_repo(&example_repo(), Some(readme), 70, false);
+        let strict = audit_repo(&example_repo(), Some(readme), 70, true);
+
+        assert_eq!(regular.score, strict.score);
+        assert_eq!(regular.missing_required, strict.missing_required);
     }
 }
